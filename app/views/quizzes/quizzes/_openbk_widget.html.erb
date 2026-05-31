@@ -1,0 +1,572 @@
+<div id="openbk-widget-dock" style="margin-top: 8px;">
+  <!-- Button used to re-dock the floating widget back into the page -->
+  <button
+    type="button"
+    id="openbk-dock-button"
+    class="btn"
+    style="margin-bottom: 8px; font-size: 0.9em; display: none;"
+  >
+    Dock
+  </button>
+</div>
+
+<script>
+  (() => {
+    // Main setup function
+    const init = () => {
+      // DOM IDs used throughout the script
+      const WIDGET_ID = 'openbk-widget'
+      const HANDLE_ID = 'openbk-widget-handle'
+      const RESIZE_HANDLE_ID_PREFIX = 'openbk-widget-resize-handle'
+      const DOCK_BUTTON_ID = 'openbk-dock-button'
+      const DOCK_TARGET_ID = 'openbk-widget-dock'
+
+      // URL loaded inside the iframe
+      const IFRAME_SRC = 'https://www.openbk.io/embed.html'
+
+      // Resize directions:
+      // n = top, e = right, s = bottom, w = left
+      // combinations are corners
+      const resizeDirections = ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw']
+
+      // Default size when docked inside the page
+      const dockedSize = { width: 280, height: 345 }
+
+      // Helper for logging widget activity
+      const log = (...args) => {
+        console.log('[OpenBK widget]', ...args)
+      }
+
+      // Get the dock button and dock container from the page
+      const dockButton = document.getElementById(DOCK_BUTTON_ID)
+      const dockTarget = document.getElementById(DOCK_TARGET_ID)
+
+      // If these are missing, stop immediately
+      if (!dockButton || !dockTarget) return
+
+      // Check whether the widget already exists
+      const existing = document.getElementById(WIDGET_ID)
+
+      // Creates the widget if it does not already exist
+      const createWidget = () => {
+        const widget = document.createElement('div')
+        widget.id = WIDGET_ID
+
+        // Create one resize handle for each direction
+        const resizeHandlesMarkup = resizeDirections
+          .map(direction => `
+            <div
+              id="${RESIZE_HANDLE_ID_PREFIX}-${direction}"
+              data-resize-direction="${direction}"
+              aria-label="Resize OpenBK panel"
+              role="presentation">
+            </div>
+          `)
+          .join('')
+
+        // Add header, iframe, and resize handles
+        widget.innerHTML = `
+          <div id="${HANDLE_ID}">
+            <span>OpenBK</span>
+            <span style="font-size: 12px; color: #4a5568;">
+              Drag header, resize any edge
+            </span>
+          </div>
+
+          <iframe
+            src="${IFRAME_SRC}"
+            title="OpenBK"
+            loading="lazy"
+            referrerpolicy="strict-origin-when-cross-origin"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+            allow="clipboard-write; fullscreen"
+            allowfullscreen>
+          </iframe>
+
+          ${resizeHandlesMarkup}
+        `
+
+        // Base widget styling
+        Object.assign(widget.style, {
+          border: '1px solid #6b778c',
+          borderRadius: '8px',
+          background: '#fff',
+          boxShadow: '0 10px 28px rgba(0, 0, 0, 0.18)',
+          boxSizing: 'border-box',
+          display: 'block',
+          visibility: 'visible',
+          opacity: '1',
+          overflow: 'hidden',
+          minWidth: '280px',
+          minHeight: '280px'
+        })
+
+        return widget
+      }
+
+      // Reuse existing widget or create a new one
+      const widget = existing || createWidget()
+
+      // If it was newly created, insert it into the dock area
+      if (!existing) {
+        dockTarget.appendChild(widget)
+      }
+
+      // Header used for dragging
+      const handle = document.getElementById(HANDLE_ID)
+
+      // Build an object containing all resize handle elements
+      const resizeHandles = resizeDirections.reduce((handles, direction) => {
+        handles[direction] = document.getElementById(`${RESIZE_HANDLE_ID_PREFIX}-${direction}`)
+        return handles
+      }, {})
+
+      // The iframe inside the widget
+      const iframe = widget.querySelector('iframe')
+
+      // Header styling
+      Object.assign(handle.style, {
+        height: '42px',
+        padding: '0 12px',
+        borderBottom: '1px solid #d9dde7',
+        background: '#f5f7fa',
+        cursor: 'move',
+        userSelect: 'none',
+        fontWeight: '600',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        boxSizing: 'border-box',
+        touchAction: 'none'
+      })
+
+      // Iframe fills the space under the header
+      Object.assign(iframe.style, {
+        display: 'block',
+        width: '100%',
+        height: 'calc(100% - 42px)',
+        border: '0'
+      })
+
+      // Styling for each resize handle
+      const resizeHandleStyles = {
+        n: { top: '-4px', left: '12px', right: '12px', height: '8px', cursor: 'ns-resize' },
+        e: { top: '12px', right: '-4px', bottom: '12px', width: '8px', cursor: 'ew-resize' },
+        s: { right: '12px', bottom: '-4px', left: '12px', height: '8px', cursor: 'ns-resize' },
+        w: { top: '12px', bottom: '12px', left: '-4px', width: '8px', cursor: 'ew-resize' },
+        ne: { top: '-4px', right: '-4px', width: '16px', height: '16px', cursor: 'nesw-resize' },
+        nw: { top: '-4px', left: '-4px', width: '16px', height: '16px', cursor: 'nwse-resize' },
+        se: { right: '-4px', bottom: '-4px', width: '16px', height: '16px', cursor: 'nwse-resize' },
+        sw: { bottom: '-4px', left: '-4px', width: '16px', height: '16px', cursor: 'nesw-resize' }
+      }
+
+      // Apply resize handle styles
+      resizeDirections.forEach(direction => {
+        Object.assign(resizeHandles[direction].style, {
+          position: 'absolute',
+          zIndex: '2',
+          touchAction: 'none',
+          background: 'transparent'
+        }, resizeHandleStyles[direction])
+      })
+
+      // Make bottom-right resize handle visibly grabbable
+      Object.assign(resizeHandles.se.style, {
+        background: 'linear-gradient(135deg, transparent 0 45%, #94a3b8 45% 55%, transparent 55% 65%, #94a3b8 65% 75%, transparent 75% 100%)'
+      })
+
+      // Interaction state
+      let dragging = false
+      let resizing = false
+      let isDocked = false
+
+      // Drag state
+      let offsetX = 0
+      let offsetY = 0
+      let lastPointerId = null
+
+      // Resize state
+      let resizeStartX = 0
+      let resizeStartY = 0
+      let resizeStartLeft = 0
+      let resizeStartTop = 0
+      let resizeStartWidth = 0
+      let resizeStartHeight = 0
+      let activeResizeDirection = null
+
+      // Minimum floating size
+      const minWidth = 280
+      const minHeight = 280
+
+      // Keeps a number between min and max
+      const clamp = (value, min, max) => Math.min(Math.max(value, min), max)
+
+      // Shows or hides the dock button
+      const setDockButtonVisible = visible => {
+        dockButton.style.display = visible ? 'inline-block' : 'none'
+      }
+
+      // Updates whether widget is docked
+      const updateDockedState = docked => {
+        isDocked = docked
+
+        // Disable resizing while docked
+        resizeDirections.forEach(direction => {
+          resizeHandles[direction].style.pointerEvents = docked ? 'none' : 'auto'
+        })
+      }
+
+      // Puts widget back into the normal page flow
+      const dockWidget = () => {
+        if (widget.parentNode !== dockTarget) {
+          dockTarget.appendChild(widget)
+        }
+
+        Object.assign(widget.style, {
+          position: 'relative',
+          left: 'auto',
+          top: 'auto',
+          right: 'auto',
+          bottom: 'auto',
+          width: `${dockedSize.width}px`,
+          height: `${dockedSize.height}px`,
+          marginTop: '0',
+          zIndex: '1',
+          maxWidth: '100%'
+        })
+
+        updateDockedState(true)
+      }
+
+      // Makes widget float over the page
+      const undockWidget = rect => {
+        document.body.appendChild(widget)
+
+        Object.assign(widget.style, {
+          position: 'fixed',
+          left: `${rect.left}px`,
+          top: `${rect.top}px`,
+          right: 'auto',
+          bottom: 'auto',
+          width: `${rect.width}px`,
+          height: `${rect.height}px`,
+          marginTop: '0',
+          zIndex: '2147483647',
+          maxWidth: 'none'
+        })
+
+        updateDockedState(false)
+      }
+
+      // Moves the floating widget during dragging
+      const moveWidget = event => {
+        if (!dragging) return
+
+        const rect = widget.getBoundingClientRect()
+
+        // Keep widget inside viewport
+        const maxLeft = Math.max(0, window.innerWidth - rect.width)
+        const maxTop = Math.max(0, window.innerHeight - rect.height)
+
+        const nextLeft = clamp(event.clientX - offsetX, 0, maxLeft)
+        const nextTop = clamp(event.clientY - offsetY, 0, maxTop)
+
+        widget.style.left = `${nextLeft}px`
+        widget.style.top = `${nextTop}px`
+      }
+
+      // Resizes the widget during resize dragging
+      const resizeWidget = event => {
+        if (!resizing) return
+
+        // Mouse movement from original resize start point
+        const deltaX = event.clientX - resizeStartX
+        const deltaY = event.clientY - resizeStartY
+
+        // Start from original rectangle
+        let nextLeft = resizeStartLeft
+        let nextTop = resizeStartTop
+        let nextWidth = resizeStartWidth
+        let nextHeight = resizeStartHeight
+
+        // East means dragging right edge
+        if (activeResizeDirection.includes('e')) {
+          const maxWidth = Math.max(minWidth, window.innerWidth - resizeStartLeft)
+          nextWidth = clamp(resizeStartWidth + deltaX, minWidth, maxWidth)
+        }
+
+        // South means dragging bottom edge
+        if (activeResizeDirection.includes('s')) {
+          const maxHeight = Math.max(minHeight, window.innerHeight - resizeStartTop)
+          nextHeight = clamp(resizeStartHeight + deltaY, minHeight, maxHeight)
+        }
+
+        // West means dragging left edge
+        if (activeResizeDirection.includes('w')) {
+          const unclampedWidth = resizeStartWidth - deltaX
+
+          // Width cannot be smaller than minWidth
+          // Also cannot go past the original right edge
+          nextWidth = clamp(unclampedWidth, minWidth, resizeStartLeft + resizeStartWidth)
+
+          // Move left edge while preserving right edge
+          nextLeft = resizeStartLeft + (resizeStartWidth - nextWidth)
+        }
+
+        // North means dragging top edge
+        if (activeResizeDirection.includes('n')) {
+          const unclampedHeight = resizeStartHeight - deltaY
+
+          // Height cannot be smaller than minHeight
+          // Also cannot go past original bottom edge
+          nextHeight = clamp(unclampedHeight, minHeight, resizeStartTop + resizeStartHeight)
+
+          // Move top edge while preserving bottom edge
+          nextTop = resizeStartTop + (resizeStartHeight - nextHeight)
+        }
+
+        // Final clamp so widget stays inside viewport
+        nextLeft = clamp(nextLeft, 0, Math.max(0, window.innerWidth - nextWidth))
+        nextTop = clamp(nextTop, 0, Math.max(0, window.innerHeight - nextHeight))
+
+        // Apply new rectangle
+        widget.style.left = `${nextLeft}px`
+        widget.style.top = `${nextTop}px`
+        widget.style.width = `${nextWidth}px`
+        widget.style.height = `${nextHeight}px`
+      }
+
+      // Stops dragging and cleans up listeners
+      const stopDragging = () => {
+        if (!dragging) return
+
+        dragging = false
+
+        // Re-enable iframe interaction
+        iframe.style.pointerEvents = 'auto'
+
+        // Re-enable text selection
+        document.documentElement.style.userSelect = ''
+
+        // Reset cursor
+        document.body.style.cursor = ''
+
+        // Release pointer capture if active
+        if (
+          lastPointerId !== null &&
+          handle.hasPointerCapture &&
+          handle.hasPointerCapture(lastPointerId)
+        ) {
+          handle.releasePointerCapture(lastPointerId)
+        }
+
+        // Remove drag listeners
+        window.removeEventListener('pointermove', moveWidget, true)
+        window.removeEventListener('pointerup', stopDragging, true)
+        window.removeEventListener('pointercancel', stopDragging, true)
+
+        log('Drag stopped')
+      }
+
+      // Stops resizing and cleans up listeners
+      const stopResizing = () => {
+        if (!resizing) return
+
+        resizing = false
+        activeResizeDirection = null
+
+        // Re-enable iframe interaction
+        iframe.style.pointerEvents = 'auto'
+
+        // Re-enable text selection
+        document.documentElement.style.userSelect = ''
+
+        // Reset cursor
+        document.body.style.cursor = ''
+
+        // Find the resize handle that captured the pointer
+        const activeHandle = lastPointerId !== null
+          ? resizeHandles[
+              Object.keys(resizeHandles).find(direction => {
+                const handleForDirection = resizeHandles[direction]
+                return (
+                  handleForDirection.hasPointerCapture &&
+                  handleForDirection.hasPointerCapture(lastPointerId)
+                )
+              })
+            ]
+          : null
+
+        // Release pointer capture
+        if (activeHandle) {
+          activeHandle.releasePointerCapture(lastPointerId)
+        }
+
+        // Remove resize listeners
+        window.removeEventListener('pointermove', resizeWidget, true)
+        window.removeEventListener('pointerup', stopResizing, true)
+        window.removeEventListener('pointercancel', stopResizing, true)
+
+        log('Resize stopped')
+      }
+
+      // Bind drag behavior once
+      if (handle.dataset.openbkBound !== 'true') {
+        handle.dataset.openbkBound = 'true'
+
+        handle.addEventListener('pointerdown', event => {
+          // Only left mouse button
+          if (event.button !== 0) return
+
+          const rect = widget.getBoundingClientRect()
+
+          // If currently docked, first convert to floating
+          if (isDocked) {
+            undockWidget(rect)
+          }
+
+          // Start dragging
+          dragging = true
+          lastPointerId = event.pointerId
+
+          // Store cursor offset inside widget
+          offsetX = event.clientX - rect.left
+          offsetY = event.clientY - rect.top
+
+          // Prevent iframe from stealing mouse events
+          iframe.style.pointerEvents = 'none'
+
+          // Prevent text selection while dragging
+          document.documentElement.style.userSelect = 'none'
+
+          // Show move cursor globally
+          document.body.style.cursor = 'move'
+
+          // Capture pointer events to header
+          if (handle.setPointerCapture) {
+            handle.setPointerCapture(event.pointerId)
+          }
+
+          // Listen globally so dragging continues even outside widget
+          window.addEventListener('pointermove', moveWidget, true)
+          window.addEventListener('pointerup', stopDragging, true)
+          window.addEventListener('pointercancel', stopDragging, true)
+
+          // Stop browser/default behavior
+          event.preventDefault()
+          event.stopPropagation()
+
+          log('Drag started', {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+          })
+        })
+      }
+
+      // Bind resize behavior to each handle once
+      resizeDirections.forEach(direction => {
+        if (resizeHandles[direction].dataset.openbkBound === 'true') return
+
+        resizeHandles[direction].dataset.openbkBound = 'true'
+
+        resizeHandles[direction].addEventListener('pointerdown', event => {
+          // Only left mouse button
+          // Do not resize while docked
+          if (event.button !== 0 || isDocked) return
+
+          const rect = widget.getBoundingClientRect()
+
+          // Start resizing
+          resizing = true
+          activeResizeDirection = direction
+          lastPointerId = event.pointerId
+
+          // Save mouse starting point
+          resizeStartX = event.clientX
+          resizeStartY = event.clientY
+
+          // Save widget starting rectangle
+          resizeStartLeft = rect.left
+          resizeStartTop = rect.top
+          resizeStartWidth = rect.width
+          resizeStartHeight = rect.height
+
+          // Prevent iframe from eating pointer events
+          iframe.style.pointerEvents = 'none'
+
+          // Prevent text selection
+          document.documentElement.style.userSelect = 'none'
+
+          // Set cursor based on handle direction
+          document.body.style.cursor = resizeHandleStyles[direction].cursor
+
+          // Capture pointer to the resize handle
+          if (resizeHandles[direction].setPointerCapture) {
+            resizeHandles[direction].setPointerCapture(event.pointerId)
+          }
+
+          // Listen globally during resize
+          window.addEventListener('pointermove', resizeWidget, true)
+          window.addEventListener('pointerup', stopResizing, true)
+          window.addEventListener('pointercancel', stopResizing, true)
+
+          // Stop browser/default behavior
+          event.preventDefault()
+          event.stopPropagation()
+
+          log('Resize started', {
+            direction,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+          })
+        })
+      })
+
+      // Bind dock button once
+      if (dockButton.dataset.openbkBound !== 'true') {
+        dockButton.dataset.openbkBound = 'true'
+
+        dockButton.addEventListener('click', () => {
+          // Stop any active interaction before docking
+          stopDragging()
+          stopResizing()
+
+          // Put widget back into dock area
+          dockWidget()
+
+          log('Dock applied')
+        })
+      }
+
+      // If browser window resizes, keep floating widget visible
+      window.addEventListener('resize', () => {
+        if (isDocked) return
+
+        const rect = widget.getBoundingClientRect()
+
+        const maxLeft = Math.max(0, window.innerWidth - rect.width)
+        const maxTop = Math.max(0, window.innerHeight - rect.height)
+
+        widget.style.left = `${clamp(rect.left, 0, maxLeft)}px`
+        widget.style.top = `${clamp(rect.top, 0, maxTop)}px`
+      })
+
+      // Make dock button visible
+      setDockButtonVisible(true)
+
+      // Start with widget docked
+      dockWidget()
+    }
+
+    // Wait for DOM if needed
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init, { once: true })
+    } else {
+      init()
+    }
+  })()
+</script>
